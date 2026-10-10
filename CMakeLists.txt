@@ -735,7 +735,6 @@ endfunction()
 
 
 function(copy_and_install_llvm_library llvm_lib_path ldc_lib_name fixup_dylib)
-        message("copy_and_install_llvm_library: ${llvm_lib_path} ${ldc_lib_name}")
         set(ldc_lib_path ${PROJECT_BINARY_DIR}/lib${LIB_SUFFIX}/${ldc_lib_name})
         copy_and_rename_file(${llvm_lib_path} ${ldc_lib_path})
         if (APPLE AND fixup_dylib)
