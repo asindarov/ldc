@@ -72,7 +72,6 @@ if(NOT LDC_WITH_MLIR STREQUAL "OFF")
 
         list(PREPEND LLVM_LIBRARIES ${MLIR_LIBS})
 
-        message("LLVM LIBRARIES: ${LLVM_LIBRARIES}")
     elseif(LDC_WITH_MLIR STREQUAL "ON")
         message(FATAL_ERROR "MLIR support was requested (LDC_WITH_MLIR=ON), but MLIR was not found.")
     else()

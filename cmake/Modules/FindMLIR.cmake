@@ -76,8 +76,6 @@ if(MLIR_FOUND)
         endif()
       endforeach()
 
-      list(LENGTH MLIR_LIBS _n)
-      message(STATUS "MLIR static libs: ${_n}")
       list(TRANSFORM MLIR_LIBS PREPEND "-l")
     endif()
 
