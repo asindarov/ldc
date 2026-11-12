@@ -22,6 +22,7 @@
 #include "driver/toobj.h"
 #include "gen/dynamiccompile.h"
 #include "gen/logger.h"
+#include "gen/mlir/irgen.h"
 #include "gen/modules.h"
 #include "gen/runtime.h"
 #include "gen/tollvm.h"
@@ -335,10 +336,15 @@ void CodeGenerator::emitMLIR(Module *m) {
     fatal();
   }
 
-  // TODO: no MLIR generation yet. It emits an empty module so
-  // --output-mlir produces a valid file
-  mlir::OwningOpRef<mlir::ModuleOp> module =
-    mlir::ModuleOp::create(mlir::UnknownLoc::get(&mlirContext_));
+  if (!global.params.betterC) {
+    error(m->loc, "MLIR output currently requires `-betterC`");
+    fatal();
+  }
+
+  MLIRGen gen(mlirContext_);
+  mlir::OwningOpRef<mlir::ModuleOp> module = gen.genModule(m);
+  if (!module)
+    fatal();
 
   writeMLIRModule(*module, m->objfile.toChars());
 
