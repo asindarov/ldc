@@ -68,7 +68,10 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
 #if LDC_MLIR_ENABLED
+#include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #endif
 #include <assert.h>
 #include <limits.h>
@@ -1305,7 +1308,11 @@ void codegenModules(Modules &modules) {
 
     DComputeCodeGenManager dccg(getGlobalContext());
 #if LDC_MLIR_ENABLED
-    mlir::MLIRContext mlircontext;
+    // The translations are needed to export the lowered module to LLVM IR
+    mlir::DialectRegistry mlirRegistry;
+    mlir::registerBuiltinDialectTranslation(mlirRegistry);
+    mlir::registerLLVMDialectTranslation(mlirRegistry);
+    mlir::MLIRContext mlircontext(mlirRegistry);
     ldc::CodeGenerator cg(getGlobalContext(), mlircontext,
                           global.params.oneobj);
 #else

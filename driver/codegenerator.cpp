@@ -23,6 +23,7 @@
 #include "gen/dynamiccompile.h"
 #include "gen/logger.h"
 #include "gen/mlir/irgen.h"
+#include "gen/mlir/lowering.h"
 #include "gen/modules.h"
 #include "gen/runtime.h"
 #include "gen/tollvm.h"
@@ -347,6 +348,20 @@ void CodeGenerator::emitMLIR(Module *m) {
     fatal();
 
   writeMLIRModule(*module, m->objfile.toChars());
+
+  std::unique_ptr<llvm::Module> llvmmodule =
+      lowerToLLVMIR(*module, context_, m->loc);
+  if (!llvmmodule)
+    fatal();
+
+#if LLVM_VERSION_MAJOR >= 21
+  llvmmodule->setTargetTriple(*global.params.targetTriple);
+#else
+  llvmmodule->setTargetTriple(global.params.targetTriple->str());
+#endif
+  llvmmodule->setDataLayout(*gDataLayout);
+
+  writeModule(llvmmodule.get(), m->objfile.toChars());
 
   if (m->llvmForceLogging && !loggerWasEnabled) {
     Logger::disable();

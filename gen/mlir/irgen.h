@@ -41,8 +41,17 @@ public:
   mlir::MLIRContext &context;
   mlir::OpBuilder builder;
 
-  /// Values of the parameters of the function currently being generated
-  llvm::DenseMap<VarDeclaration *, mlir::Value> values;
+  /// Stack slots of parameters and local variables, as rank-0 memrefs
+  llvm::DenseMap<VarDeclaration *, mlir::Value> locals;
+
+  /// Returns the storage an lvalue denotes
+  mlir::Value genLValue(Expression *expr);
+
+  mlir::Value createAlloca(mlir::Type elemType, mlir::Location loc);
+
+  mlir::Value genCondition(Expression *expr);
+
+  bool isTerminated();
 
   /// Generates MLIR for the whole module. Returns null (after emitting errors)
   /// if anything in the module is not supported yet
@@ -66,6 +75,8 @@ public:
 
 private:
   mlir::ModuleOp module;
+  mlir::Block *entryBlock = nullptr;
+  mlir::Operation *lastAlloca = nullptr;
 };
 
 } // namespace ldc

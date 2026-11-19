@@ -7,6 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+
 #if LDC_MLIR_ENABLED
 
 #include "gen/mlir/irgen.h"
@@ -26,10 +27,15 @@
 #include "gen/logger.h"
 #include "gen/mlir/types.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/raw_ostream.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Verifier.h"
+#include <iterator>
 
 using namespace dmd;
 
@@ -87,12 +93,36 @@ public:
       if (!stmt)
         continue;
 
+
+      llvm::errs() <<  "stmt @ " << stmt->loc.toChars() << " mightHaveTerminator = "
+                  << gen.builder.getInsertionBlock()->mightHaveTerminator() << "\n";
+
       // Statements after a `return` are unreachable; `func.return` must be
       // the last operation of its block
       if (gen.builder.getInsertionBlock()->mightHaveTerminator())
         break;
 
       stmt->accept(this);
+    }
+  }
+
+  void visit(IfStatement *s) override {
+    mlir::Value condition = gen.genCondition(s->condition);
+
+    mlir::Location loc = gen.loc(s->condition->loc);
+
+    auto ifOp = gen.builder.create<mlir::scf::IfOp>(loc, condition, /* withElseRegion= */s->elsebody != nullptr);
+
+    {
+      mlir::OpBuilder::InsertionGuard guard(gen.builder);
+      gen.builder.setInsertionPointToStart(ifOp.thenBlock());
+      gen.genStatement(s->ifbody);
+    }
+
+    if (s->elsebody != nullptr) {
+      mlir::OpBuilder::InsertionGuard guard(gen.builder);
+      gen.builder.setInsertionPointToStart(ifOp.elseBlock());
+      gen.genStatement(s->elsebody);
     }
   }
 
@@ -129,7 +159,27 @@ public:
 
 MLIRGen::MLIRGen(mlir::MLIRContext &context)
     : context(context), builder(&context) {
-  context.loadDialect<mlir::func::FuncDialect, mlir::arith::ArithDialect>();
+  context.loadDialect<mlir::func::FuncDialect, mlir::arith::ArithDialect,
+                      mlir::memref::MemRefDialect, mlir::scf::SCFDialect>();
+}
+
+mlir::Value MLIRGen::createAlloca(mlir::Type elemType, mlir::Location loc) {
+  // Keep all allocas together att he top of the entry block, in declaration
+  // order
+  mlir::OpBuilder::InsertionGuard guard(builder);
+
+  if (lastAlloca) {
+    builder.setInsertionPointAfter(lastAlloca);
+  } else {
+    builder.setInsertionPointToStart(entryBlock);
+  }
+
+  auto alloca = builder.create<mlir::memref::AllocaOp>(
+      loc, mlir::MemRefType::get({}, elemType));
+
+  lastAlloca = alloca;
+
+  return alloca;
 }
 
 mlir::Location MLIRGen::loc(const Loc &l) {
@@ -211,8 +261,8 @@ mlir::func::FuncOp MLIRGen::getOrDeclareFunction(FuncDeclaration *fd,
   auto func = builder.create<mlir::func::FuncOp>(
       loc(fd->loc), name, builder.getFunctionType(argTypes, resultTypes));
 
-  // The MLIR verifier requires bodiless declarations to be private. `genFunction`
-  // makes the symbol public again when it adds the body.
+  // The MLIR verifier requires bodiless declarations to be private.
+  // `genFunction` makes the symbol public again when it adds the body.
   func.setPrivate();
   return func;
 }
@@ -228,13 +278,21 @@ void MLIRGen::genFunction(FuncDeclaration *fd) {
   assert(func.isDeclaration() && "function defined twice");
 
   func.setPublic();
-  mlir::Block *entry = func.addEntryBlock();
-  builder.setInsertionPointToStart(entry);
 
-  values.clear();
+  entryBlock = func.addEntryBlock();
+  builder.setInsertionPointToStart(entryBlock);
+  lastAlloca = nullptr;
+
+  locals.clear();
+
   if (fd->parameters) {
     for (size_t i = 0; i < fd->parameters->length; i++) {
-      values[(*fd->parameters)[i]] = entry->getArgument(i);
+      VarDeclaration *vd = (*fd->parameters)[i];
+      mlir::Value arg = entryBlock->getArgument(i);
+      mlir::Location location = loc(vd->loc);
+      mlir::Value storage = createAlloca(arg.getType(), location);
+      builder.create<mlir::memref::StoreOp>(location, arg, storage);
+      locals[vd] = storage;
     }
   }
 
@@ -249,6 +307,16 @@ void MLIRGen::genFunction(FuncDeclaration *fd) {
 void MLIRGen::genStatement(Statement *stmt) {
   ToMLIRStatementVisitor visitor(*this);
   stmt->accept(&visitor);
+}
+
+bool MLIRGen::isTerminated() {
+  mlir::Block *block = builder.getInsertionBlock();
+  mlir::Block::iterator point = builder.getInsertionPoint();
+
+  if (point == block->begin())
+    return false;
+
+  return std::prev(point)->hasTrait<mlir::OpTrait::IsTerminator>();
 }
 
 } // namespace ldc
